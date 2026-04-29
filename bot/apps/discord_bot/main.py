@@ -46,6 +46,11 @@ logging.basicConfig(
 )
 
 log = logging.getLogger("discord_bot")
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "y", "on"}
 
 # ---------------------------------------------------------------------------
 # Bot-Setup
@@ -154,6 +159,11 @@ async def before_cleanup_old_user_data():
 
 def load_extensions():
     for ext in INITIAL_EXTENSIONS:
+        if ext == "cogs.sevendtd_monitor" and not env_bool("SEVENDTD_EVENT_MONITOR_ENABLED", False):
+            log.info("Skipped extension %s because SEVENDTD_EVENT_MONITOR_ENABLED=false", ext)
+            print(f"Skipped extension: {ext}")
+            continue
+
         try:
             bot.load_extension(ext)
         except Exception as exc:
