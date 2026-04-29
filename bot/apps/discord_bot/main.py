@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+import socket
 from pathlib import Path
 
 import nextcord
@@ -166,12 +167,36 @@ def load_extensions():
 # Entry Point
 # ---------------------------------------------------------------------------
 
+def acquire_single_instance_lock() -> socket.socket:
+    """
+    Verhindert, dass der Bot zweimal auf demselben System läuft.
+
+    Nutzt einen lokalen TCP-Port als Prozess-Lock.
+    Wenn der Port bereits belegt ist, läuft schon eine Bot-Instanz.
+    """
+    lock_port = int(os.getenv("BOT_INSTANCE_LOCK_PORT", "49291"))
+
+    lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+
+    try:
+        lock_socket.bind(("127.0.0.1", lock_port))
+        lock_socket.listen(1)
+        return lock_socket
+
+    except OSError:
+        raise SystemExit(
+            f"Bot läuft bereits oder Lock-Port ist belegt: 127.0.0.1:{lock_port}"
+        )
 
 async def main():
+    instance_lock = acquire_single_instance_lock()
+
     token = os.getenv("DISCORD_TOKEN")
     if not token:
         log.error("DISCORD_TOKEN is not set in %s", ENV_PATH)
-        raise SystemExit("Missing DISCORD_TOKEN in apps/.env.")
+        instance_lock.close()
+        raise SystemExit("Missing DISCORD_TOKEN in bot/.env.")
 
     try:
         await bot.db.connect()
@@ -195,6 +220,7 @@ async def main():
             cleanup_old_user_data.cancel()
 
         await bot.db.close()
+        instance_lock.close()
         log.info("Database connection closed.")
 
 
