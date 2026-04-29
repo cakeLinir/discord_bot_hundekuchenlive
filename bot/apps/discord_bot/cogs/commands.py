@@ -7,7 +7,6 @@ from typing import Final
 import nextcord
 from nextcord.ext import commands
 
-
 # ---------------------------------------------------------------------------
 # Zentrale Links
 # ---------------------------------------------------------------------------
@@ -30,6 +29,7 @@ BLURPLE_COLOR: Final[int] = 0x5865F2
 # ---------------------------------------------------------------------------
 # Views
 # ---------------------------------------------------------------------------
+
 
 class SocialsView(nextcord.ui.View):
     """Link-Buttons für Social-Media-Profile."""
@@ -58,6 +58,7 @@ class SocialsView(nextcord.ui.View):
 # ---------------------------------------------------------------------------
 # Cog
 # ---------------------------------------------------------------------------
+
 
 class Commands(commands.Cog):
     """Öffentliche Slash-Commands für allgemeine Bot-Informationen."""
@@ -392,13 +393,78 @@ class Commands(commands.Cog):
         name="status",
         description="Zeigt den Status des Bots an.",
     )
-    async def status_slash(self, interaction: nextcord.Interaction) -> None:
-        embed = self._build_status_embed()
+    async def status_slash(self, interaction: nextcord.Interaction):
+        started = time.perf_counter()
+        await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True,
+        uptime_seconds = int(time.time() - self.bot.start_time)
+        uptime_str = time.strftime("%H:%M:%S", time.gmtime(uptime_seconds))
+
+        websocket_latency_ms = round(self.bot.latency * 1000)
+        command_response_ms = round((time.perf_counter() - started) * 1000)
+
+        if websocket_latency_ms < 0:
+            latency_label = "unbekannt"
+            latency_status = "⚪ unbekannt"
+        elif websocket_latency_ms <= 300:
+            latency_label = f"{websocket_latency_ms} ms"
+            latency_status = "🟢 normal"
+        elif websocket_latency_ms <= 1500:
+            latency_label = f"{websocket_latency_ms} ms"
+            latency_status = "🟡 erhöht"
+        elif websocket_latency_ms <= 60_000:
+            latency_label = f"{websocket_latency_ms} ms"
+            latency_status = "🟠 kritisch"
+        else:
+            latency_label = f"{websocket_latency_ms} ms"
+            latency_status = "🔴 Gateway hängt"
+
+        embed = nextcord.Embed(
+            title="Bot Status",
+            description="Aktueller Systemstatus und Laufzeitinformationen.",
+            color=(
+                nextcord.Color.green()
+                if websocket_latency_ms <= 1500
+                else nextcord.Color.orange()
+            ),
         )
+
+        embed.add_field(name="Status", value="`Online`", inline=True)
+        embed.add_field(name="Gateway", value=f"`{latency_status}`", inline=True)
+        embed.add_field(
+            name="WebSocket-Latenz", value=f"`{latency_label}`", inline=True
+        )
+
+        embed.add_field(
+            name="Command Response", value=f"`{command_response_ms} ms`", inline=True
+        )
+        embed.add_field(name="Uptime", value=f"`{uptime_str}`", inline=True)
+        embed.add_field(name="Version", value="`V1.0.1`", inline=True)
+
+        embed.add_field(name="Server", value=f"`{len(self.bot.guilds)}`", inline=True)
+        embed.add_field(
+            name="Benutzer ungefähr",
+            value=f"`{sum(g.member_count or 0 for g in self.bot.guilds)}`",
+            inline=True,
+        )
+
+        if websocket_latency_ms > 60_000:
+            embed.add_field(
+                name="Hinweis",
+                value=(
+                    "Die WebSocket-Latenz ist extrem hoch. Das ist kein normaler Ping, "
+                    "sondern ein Hinweis auf blockierte Discord-Heartbeats oder einen hängenden Eventloop."
+                ),
+                inline=False,
+            )
+
+        if self.bot.user:
+            embed.set_footer(
+                text=f"hundekuchenlive Bot • {self.bot.user}",
+                icon_url=self.bot.user.display_avatar.url,
+            )
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @nextcord.slash_command(
         name="socials",

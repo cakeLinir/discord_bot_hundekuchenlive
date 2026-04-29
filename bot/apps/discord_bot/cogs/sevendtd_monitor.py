@@ -15,7 +15,6 @@ import aiohttp
 import nextcord
 from nextcord.ext import commands
 
-
 TokenKind = Literal["read", "admin", "log"]
 
 
@@ -147,8 +146,12 @@ class SevenDTDLogMonitor(commands.Cog):
                 "7DTD Log-Monitor Token fehlt. Prüfe SEVENDTD_LOG_TOKEN_KIND und Token-Variablen."
             )
 
-        name_header = os.getenv("SEVENDTD_TOKEN_NAME_HEADER", "X-SDTD-API-TOKENNAME").strip()
-        secret_header = os.getenv("SEVENDTD_TOKEN_SECRET_HEADER", "X-SDTD-API-SECRET").strip()
+        name_header = os.getenv(
+            "SEVENDTD_TOKEN_NAME_HEADER", "X-SDTD-API-TOKENNAME"
+        ).strip()
+        secret_header = os.getenv(
+            "SEVENDTD_TOKEN_SECRET_HEADER", "X-SDTD-API-SECRET"
+        ).strip()
 
         return {
             name_header: token_name,
@@ -248,11 +251,15 @@ class SevenDTDLogMonitor(commands.Cog):
             sock_read=None,
         )
 
-        async with aiohttp.ClientSession(timeout=timeout, headers=self._headers()) as session:
+        async with aiohttp.ClientSession(
+            timeout=timeout, headers=self._headers()
+        ) as session:
             async with session.get(self._url(endpoint), ssl=False) as response:
                 if response.status != 200:
                     raw = await response.text()
-                    raise RuntimeError(f"{endpoint} returned HTTP {response.status}: {raw[:300]}")
+                    raise RuntimeError(
+                        f"{endpoint} returned HTTP {response.status}: {raw[:300]}"
+                    )
 
                 self.connected = True
                 self.last_error = None
@@ -264,6 +271,7 @@ class SevenDTDLogMonitor(commands.Cog):
                 data_lines: list[str] = []
 
                 async for raw_line in response.content:
+                    await asyncio.sleep(0)
                     if self._stop_event.is_set():
                         break
 
@@ -311,6 +319,8 @@ class SevenDTDLogMonitor(commands.Cog):
         lines = self._payload_to_lines(payload)
 
         for line in lines:
+            await asyncio.sleep(0)
+
             clean = self._sanitize_line(line)
             if not clean:
                 continue
@@ -393,11 +403,7 @@ class SevenDTDLogMonitor(commands.Cog):
             )
 
         # Warnungen
-        if (
-            "warning" in lower
-            or "[wrn]" in lower
-            or " wrn " in lower
-        ):
+        if "warning" in lower or "[wrn]" in lower or " wrn " in lower:
             return ClassifiedLogEvent(
                 category="warning",
                 title="7DTD Warnung",
@@ -434,11 +440,7 @@ class SevenDTDLogMonitor(commands.Cog):
             )
 
         # Bloodmoon / Horde
-        if (
-            "bloodmoon" in lower
-            or "blood moon" in lower
-            or "horde" in lower
-        ):
+        if "bloodmoon" in lower or "blood moon" in lower or "horde" in lower:
             return ClassifiedLogEvent(
                 category="bloodmoon",
                 title="Bloodmoon / Horde Event",
@@ -492,9 +494,7 @@ class SevenDTDLogMonitor(commands.Cog):
 
         # Chat bewusst optional.
         if forward_chat and (
-            "chat" in lower
-            or "sayplayer" in lower
-            or "global" in lower
+            "chat" in lower or "sayplayer" in lower or "global" in lower
         ):
             return ClassifiedLogEvent(
                 category="chat",
@@ -517,12 +517,16 @@ class SevenDTDLogMonitor(commands.Cog):
     # Anti-Spam
     # ------------------------------------------------------------------ #
 
-    def _is_duplicate(self, category: str, line: str, *, window_seconds: int = 30) -> bool:
+    def _is_duplicate(
+        self, category: str, line: str, *, window_seconds: int = 30
+    ) -> bool:
         now = asyncio.get_running_loop().time()
         digest = hashlib.sha256(f"{category}:{line}".encode("utf-8")).hexdigest()
 
         # alte Hashes entfernen
-        expired = [key for key, ts in self._recent_hashes.items() if now - ts > window_seconds]
+        expired = [
+            key for key, ts in self._recent_hashes.items() if now - ts > window_seconds
+        ]
         for key in expired:
             self._recent_hashes.pop(key, None)
 
@@ -533,10 +537,14 @@ class SevenDTDLogMonitor(commands.Cog):
         self._recent_hashes[digest] = now
         return False
 
-    def _is_rate_limited(self, *, max_events: int = 20, window_seconds: int = 60) -> bool:
+    def _is_rate_limited(
+        self, *, max_events: int = 20, window_seconds: int = 60
+    ) -> bool:
         now = asyncio.get_running_loop().time()
 
-        while self._event_timestamps and now - self._event_timestamps[0] > window_seconds:
+        while (
+            self._event_timestamps and now - self._event_timestamps[0] > window_seconds
+        ):
             self._event_timestamps.popleft()
 
         if len(self._event_timestamps) >= max_events:
@@ -552,7 +560,9 @@ class SevenDTDLogMonitor(commands.Cog):
     async def _send_event(self, event: ClassifiedLogEvent, *, raw_line: str) -> None:
         channel = self._event_channel()
         if channel is None:
-            self.last_error = "SEVENDTD_EVENT_CHANNEL_ID fehlt oder Channel nicht gefunden."
+            self.last_error = (
+                "SEVENDTD_EVENT_CHANNEL_ID fehlt oder Channel nicht gefunden."
+            )
             return
 
         embed = nextcord.Embed(
@@ -565,7 +575,9 @@ class SevenDTDLogMonitor(commands.Cog):
         embed.add_field(name="Kategorie", value=f"`{event.category}`", inline=True)
 
         if self.current_endpoint:
-            embed.add_field(name="Quelle", value=f"`{self.current_endpoint}`", inline=True)
+            embed.add_field(
+                name="Quelle", value=f"`{self.current_endpoint}`", inline=True
+            )
 
         embed.set_footer(text="hundekuchenlive Bot • 7DTD Event Monitor")
 
@@ -607,9 +619,15 @@ class SevenDTDLogMonitor(commands.Cog):
             inline=True,
         )
         embed.add_field(name="Verbunden", value=f"`{self.connected}`", inline=True)
-        embed.add_field(name="Endpoint", value=f"`{self.current_endpoint or 'n/a'}`", inline=True)
-        embed.add_field(name="Gesehene Zeilen", value=f"`{self.total_lines_seen}`", inline=True)
-        embed.add_field(name="Gesendete Events", value=f"`{self.total_events_sent}`", inline=True)
+        embed.add_field(
+            name="Endpoint", value=f"`{self.current_endpoint or 'n/a'}`", inline=True
+        )
+        embed.add_field(
+            name="Gesehene Zeilen", value=f"`{self.total_lines_seen}`", inline=True
+        )
+        embed.add_field(
+            name="Gesendete Events", value=f"`{self.total_events_sent}`", inline=True
+        )
         embed.add_field(
             name="Event-Channel",
             value=f"`{self._event_channel_id() or 'n/a'}`",
