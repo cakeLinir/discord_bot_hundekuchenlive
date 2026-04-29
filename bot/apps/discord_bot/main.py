@@ -52,6 +52,17 @@ def env_bool(name: str, default: bool = False) -> bool:
         return default
     return value in {"1", "true", "yes", "y", "on"}
 
+def env_csv_set(name: str) -> set[str]:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return set()
+
+    return {
+        item.strip()
+        for item in value.split(",")
+        if item.strip()
+    }
+
 # ---------------------------------------------------------------------------
 # Bot-Setup
 # ---------------------------------------------------------------------------
@@ -151,6 +162,26 @@ async def cleanup_old_user_data():
 async def before_cleanup_old_user_data():
     await bot.wait_until_ready()
 
+async def event_loop_lag_watchdog() -> None:
+    interval = float(os.getenv("EVENT_LOOP_LAG_INTERVAL_SECONDS", "10"))
+    warn_after = float(os.getenv("EVENT_LOOP_LAG_WARN_SECONDS", "2"))
+
+    loop = asyncio.get_running_loop()
+    expected = loop.time() + interval
+
+    while not bot.is_closed():
+        await asyncio.sleep(interval)
+
+        now = loop.time()
+        lag = max(0.0, now - expected)
+
+        bot.event_loop_last_lag_ms = int(lag * 1000)
+
+        if lag >= warn_after:
+            log.warning("Event loop lag detected: %.3fs", lag)
+
+        expected = now + interval
+
 
 # ---------------------------------------------------------------------------
 # Cogs laden
@@ -158,7 +189,20 @@ async def before_cleanup_old_user_data():
 
 
 def load_extensions():
+    only_extensions = env_csv_set("BOT_ONLY_EXTENSIONS")
+    disabled_extensions = env_csv_set("BOT_DISABLED_EXTENSIONS")
+
     for ext in INITIAL_EXTENSIONS:
+        if only_extensions and ext not in only_extensions:
+            log.info("Skipped extension %s because BOT_ONLY_EXTENSIONS is active", ext)
+            print(f"Skipped extension: {ext}")
+            continue
+
+        if ext in disabled_extensions:
+            log.info("Skipped extension %s because it is listed in BOT_DISABLED_EXTENSIONS", ext)
+            print(f"Skipped extension: {ext}")
+            continue
+
         if ext == "cogs.sevendtd_monitor" and not env_bool("SEVENDTD_EVENT_MONITOR_ENABLED", False):
             log.info("Skipped extension %s because SEVENDTD_EVENT_MONITOR_ENABLED=false", ext)
             print(f"Skipped extension: {ext}")
@@ -223,12 +267,21 @@ async def main():
 
         if not cleanup_old_user_data.is_running():
             cleanup_old_user_data.start()
+            
+        lag_watchdog_task = asyncio.create_task(event_loop_lag_watchdog())
 
         await bot.start(token)
 
     finally:
         if cleanup_old_user_data.is_running():
             cleanup_old_user_data.cancel()
+
+        if "lag_watchdog_task" in locals():
+            lag_watchdog_task.cancel()
+            try:
+                await lag_watchdog_task
+            except asyncio.CancelledError:
+                pass
 
         await bot.db.close()
         instance_lock.close()
