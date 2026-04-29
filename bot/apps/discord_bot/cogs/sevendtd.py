@@ -451,6 +451,11 @@ class SevenDTD(commands.Cog):
                 return value
         return default
 
+    @staticmethod
+    def _env_value(name: str, default: str = "n/a") -> str:
+        value = os.getenv(name, "").strip()
+        return value or default
+
     def _player_name(self, player: Any) -> str:
         if not isinstance(player, dict):
             return str(player)
