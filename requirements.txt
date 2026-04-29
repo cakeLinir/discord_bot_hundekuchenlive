@@ -1,0 +1,4 @@
+aiohttp
+nextcord
+python-dotenv
+aiosqlite
