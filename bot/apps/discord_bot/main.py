@@ -201,6 +201,7 @@ def acquire_single_instance_lock() -> socket.socket:
 
 async def main():
     instance_lock = acquire_single_instance_lock()
+    log.info("Asyncio event loop: %s", type(asyncio.get_running_loop()).__name__)
 
     token = os.getenv("DISCORD_TOKEN")
     if not token:
@@ -235,4 +236,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     asyncio.run(main())
