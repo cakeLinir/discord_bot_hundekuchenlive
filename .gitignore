@@ -124,6 +124,9 @@ bot/data/ls25_panel_state.json
 bot/data/gameserver_panel_state.json
 bot/data/selfroles_state.json
 bot/data/moderation_state.json
+bot/apps/discord_bot/*_state.json
+bot/apps/discord_bot/**/*_state.json
+bot/data/gameservers.json
 
 # Optional: falls du Runtime-JSONs nicht versionieren willst
 bot/data/runtime/
