@@ -1,4 +1,5 @@
-aiohttp
-nextcord
-python-dotenv
-aiosqlite
+aiohttp>=3.9,<4.0
+nextcord>=2.6,<3.0
+discord.py>=2.5,<3.0
+python-dotenv>=1.0,<2.0
+aiosqlite>=0.20,<1.0
