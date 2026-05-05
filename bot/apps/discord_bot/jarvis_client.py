@@ -10,18 +10,14 @@ import aiohttp
 
 @dataclass(slots=True)
 class JarvisClient:
-    """Small HTTP client for the future JARVIS bridge.
-
-    The Discord bot must never receive arbitrary executable commands from JARVIS.
-    This bridge is intentionally read/status oriented at first. Write actions
-    should be added later as explicit, allowlisted capabilities.
-    """
+    """HTTP client for the JARVIS backend bridge."""
 
     enabled: bool
     base_url: str
     api_token: str
     health_endpoint: str = "/health"
     status_endpoint: str = "/modules"
+    timeout_seconds: int = 5
 
     @classmethod
     def from_env(cls) -> "JarvisClient":
@@ -32,6 +28,7 @@ class JarvisClient:
             api_token=os.getenv("JARVIS_API_TOKEN", "").strip(),
             health_endpoint=os.getenv("JARVIS_HEALTH_ENDPOINT", "/health").strip() or "/health",
             status_endpoint=os.getenv("JARVIS_STATUS_ENDPOINT", "/modules").strip() or "/modules",
+            timeout_seconds=int(os.getenv("JARVIS_API_TIMEOUT_SECONDS", "5")),
         )
 
     def _url(self, endpoint: str) -> str:
@@ -43,14 +40,20 @@ class JarvisClient:
             headers["Authorization"] = f"Bearer {self.api_token}"
         return headers
 
-    async def get_json(self, endpoint: str, *, timeout_seconds: int = 5) -> tuple[int, Any]:
+    async def request_json(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        json: dict[str, Any] | None = None,
+    ) -> tuple[int, Any]:
         if not self.enabled:
             return 503, {"detail": "JARVIS bridge disabled"}
 
-        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
 
         async with aiohttp.ClientSession(timeout=timeout, headers=self._headers()) as session:
-            async with session.get(self._url(endpoint)) as response:
+            async with session.request(method, self._url(endpoint), json=json) as response:
                 try:
                     body: Any = await response.json(content_type=None)
                 except Exception:
@@ -58,8 +61,32 @@ class JarvisClient:
 
                 return response.status, body
 
+    async def get_json(self, endpoint: str) -> tuple[int, Any]:
+        return await self.request_json("GET", endpoint)
+
+    async def post_json(self, endpoint: str, payload: dict[str, Any]) -> tuple[int, Any]:
+        return await self.request_json("POST", endpoint, json=payload)
+
     async def health(self) -> tuple[int, Any]:
         return await self.get_json(self.health_endpoint)
 
     async def status(self) -> tuple[int, Any]:
         return await self.get_json(self.status_endpoint)
+
+    async def agents(self) -> tuple[int, Any]:
+        return await self.get_json("/agents")
+
+    async def enqueue_agent_job(
+        self,
+        *,
+        agent_id: str,
+        job_type: str,
+        payload: dict[str, Any],
+    ) -> tuple[int, Any]:
+        return await self.post_json(
+            f"/agents/{agent_id}/jobs",
+            {
+                "job_type": job_type,
+                "payload": payload,
+            },
+        )

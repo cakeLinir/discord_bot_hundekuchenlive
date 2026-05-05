@@ -28,26 +28,12 @@ if (Test-Path $PidFile) {
     }
 }
 
-$RuntimeMode = $env:BOT_RUNTIME
-
-if ([string]::IsNullOrWhiteSpace($RuntimeMode) -and (Test-Path $RuntimeFile)) {
-    $RuntimeMode = (Get-Content $RuntimeFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
-}
-
-if ([string]::IsNullOrWhiteSpace($RuntimeMode)) {
-    $RuntimeMode = "legacy"
-}
-
-if ($RuntimeMode -notin @("legacy", "discordpy")) {
-    Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Ungültiger RuntimeMode=$RuntimeMode"
-    exit 1
-}
 
 $env:BOT_RUNTIME = $RuntimeMode
 
 Set-Location $Repo
 
-Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Starte Bot EntryModule=$EntryModule BOT_RUNTIME=$RuntimeMode"
+Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Starte Bot EntryModule=$EntryModule"
 
 $process = Start-Process `
     -FilePath $Python `
