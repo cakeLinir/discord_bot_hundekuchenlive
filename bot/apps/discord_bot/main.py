@@ -11,24 +11,9 @@ THIS_FILE = Path(__file__).resolve()
 DISCORD_BOT_DIR = THIS_FILE.parent       # bot/apps/discord_bot
 APPS_DIR = DISCORD_BOT_DIR.parent        # bot/apps
 BOT_ROOT = APPS_DIR.parent               # bot
-ENV_PATH = BOT_ROOT / ".env"             # bot/.env
-ENV_LOCAL_PATH = BOT_ROOT / ".env.local" # bot/.env.local
-
-# Wichtig:
-# - DISCORD_BOT_DIR für "cogs.*"
-# - BOT_ROOT für "core.db"
-for path in (DISCORD_BOT_DIR, BOT_ROOT):
-    path_str = str(path)
-    if path_str not in sys.path:
-        sys.path.insert(0, path_str)
 
 ENV_PATH = BOT_ROOT / ".env"
 ENV_LOCAL_PATH = BOT_ROOT / ".env.local"
-
-
-# ---------------------------------------------------------------------------
-# Grundkonfiguration
-# ---------------------------------------------------------------------------
 
 load_dotenv(ENV_PATH, override=False)
 load_dotenv(ENV_LOCAL_PATH, override=True)
