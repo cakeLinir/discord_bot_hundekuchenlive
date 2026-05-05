@@ -21,6 +21,8 @@ bot/**/*.env
 
 # Ausnahme: Beispiel-Dateien dürfen ins Repo
 !*.example.env
+!.env.example
+!bot/.env.example
 !config.example.yaml
 !config.example.yml
 
