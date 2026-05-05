@@ -18,6 +18,10 @@ DISCORD_BOT_DIR = THIS_FILE.parent       # bot/apps/discord_bot
 APPS_DIR = DISCORD_BOT_DIR.parent        # bot/apps
 BOT_ROOT = APPS_DIR.parent               # bot
 ENV_PATH = BOT_ROOT / ".env"
+ENV_LOCAL_PATH = BOT_ROOT / ".env.local" # bot/.env.local
+
+load_dotenv(ENV_PATH, override=False)
+load_dotenv(ENV_LOCAL_PATH, override=True)
 
 for path in (DISCORD_BOT_DIR, BOT_ROOT):
     path_str = str(path)
@@ -25,8 +29,6 @@ for path in (DISCORD_BOT_DIR, BOT_ROOT):
         sys.path.insert(0, path_str)
 
 from jarvis_client import JarvisClient  # noqa: E402
-
-load_dotenv(ENV_PATH)
 
 logging.basicConfig(
     level=logging.INFO,

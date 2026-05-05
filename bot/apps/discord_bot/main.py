@@ -3,22 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import socket
-import sys
-import time
 from pathlib import Path
 
-import nextcord
 from dotenv import load_dotenv
-from nextcord.ext import commands, tasks
-
-# ---------------------------------------------------------------------------
-# Pfade
-# ---------------------------------------------------------------------------
 
 THIS_FILE = Path(__file__).resolve()
-
-# bot/apps/discord_bot/main.py
 DISCORD_BOT_DIR = THIS_FILE.parent       # bot/apps/discord_bot
 APPS_DIR = DISCORD_BOT_DIR.parent        # bot/apps
 BOT_ROOT = APPS_DIR.parent               # bot
@@ -33,7 +22,8 @@ for path in (DISCORD_BOT_DIR, BOT_ROOT):
     if path_str not in sys.path:
         sys.path.insert(0, path_str)
 
-from core.db import Database  # noqa: E402
+ENV_PATH = BOT_ROOT / ".env"
+ENV_LOCAL_PATH = BOT_ROOT / ".env.local"
 
 
 # ---------------------------------------------------------------------------
@@ -48,343 +38,42 @@ logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
 )
 
-log = logging.getLogger("discord_bot")
+log = logging.getLogger("discord_bot.entrypoint")
 
 
-# ---------------------------------------------------------------------------
-# Env Helper
-# ---------------------------------------------------------------------------
+def get_runtime() -> str:
+    runtime = os.getenv("BOT_RUNTIME", "legacy").strip().lower()
 
-def env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name, "").strip().lower()
-
-    if not value:
-        return default
-
-    return value in {"1", "true", "yes", "y", "on"}
-
-
-def env_int(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-
-    if not value:
-        return default
-
-    try:
-        return int(value)
-    except ValueError:
-        log.warning("Invalid integer for %s=%r. Using default=%s", name, value, default)
-        return default
-
-
-def env_float(name: str, default: float) -> float:
-    value = os.getenv(name, "").strip()
-
-    if not value:
-        return default
-
-    try:
-        return float(value)
-    except ValueError:
-        log.warning("Invalid float for %s=%r. Using default=%s", name, value, default)
-        return default
-
-
-def env_csv_set(name: str) -> set[str]:
-    value = os.getenv(name, "").strip()
-
-    if not value:
-        return set()
-
-    return {
-        item.strip()
-        for item in value.split(",")
-        if item.strip()
+    aliases = {
+        "legacy": "legacy",
+        "nextcord": "legacy",
+        "old": "legacy",
+        "discordpy": "discordpy",
+        "discord.py": "discordpy",
+        "canary": "discordpy",
+        "new": "discordpy",
     }
 
+    if runtime not in aliases:
+        allowed = ", ".join(sorted(aliases))
+        raise SystemExit(f"Invalid BOT_RUNTIME={runtime!r}. Allowed values: {allowed}")
 
-# ---------------------------------------------------------------------------
-# Single Instance Lock
-# ---------------------------------------------------------------------------
+    return aliases[runtime]
 
-def acquire_single_instance_lock() -> socket.socket:
-    """
-    Verhindert, dass der Bot zweimal auf demselben System läuft.
-
-    Nutzt einen lokalen TCP-Port als Prozess-Lock.
-    Wenn der Port bereits belegt ist, läuft schon eine Bot-Instanz.
-    """
-    lock_port = env_int("BOT_INSTANCE_LOCK_PORT", 49291)
-
-    lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-
-    try:
-        lock_socket.bind(("127.0.0.1", lock_port))
-        lock_socket.listen(1)
-        return lock_socket
-
-    except OSError:
-        raise SystemExit(
-            f"Bot läuft bereits oder Lock-Port ist belegt: 127.0.0.1:{lock_port}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Bot-Setup
-# ---------------------------------------------------------------------------
-
-intents = nextcord.Intents.default()
-
-# Testmodus:
-# BOT_MINIMAL_INTENTS=true macht den Bot näher am Gateway-Probe:
-# - kein message_content
-# - kein members intent
-#
-# Später für Produktivbetrieb wieder false setzen, wenn Moderation/Selfroles
-# Members brauchen.
-if not env_bool("BOT_MINIMAL_INTENTS", False):
-    intents.message_content = True
-    intents.members = True
-
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents,
-    heartbeat_timeout=env_float("DISCORD_HEARTBEAT_TIMEOUT", 45.0),
-    guild_ready_timeout=env_float("DISCORD_GUILD_READY_TIMEOUT", 5.0),
-    max_messages=env_int("DISCORD_MAX_MESSAGES", 500),
-)
-
-bot.start_time = time.time()
-bot.version = "V1.0.1"
-bot.event_loop_last_lag_ms = 0
-
-
-# ---------------------------------------------------------------------------
-# Datenbank V1.0.1
-# ---------------------------------------------------------------------------
-
-db_path_raw = os.getenv("DB_PATH", "data/bot_v101.sqlite3").strip()
-db_path = Path(db_path_raw)
-
-if not db_path.is_absolute():
-    db_path = (BOT_ROOT / db_path).resolve()
-
-bot.db = Database(db_path)
-
-
-# ---------------------------------------------------------------------------
-# Cogs
-# ---------------------------------------------------------------------------
-
-INITIAL_EXTENSIONS = [
-    # DB-/Audit-Logging zuerst laden
-    "cogs.audit_log",
-
-    # Basis-Cogs
-    "cogs.commands",
-    "cogs.moderation",
-    "cogs.embeds",
-    "cogs.selfroles_slash",
-
-    # 7DTD Event-Monitor wird nur geladen, wenn SEVENDTD_EVENT_MONITOR_ENABLED=true
-    "cogs.sevendtd_monitor",
-
-    # Admin-Slash mit DB-Commands
-    "cogs.admin_slash",
-
-    # Einzelne Gameserver-Panels
-    "cogs.satisfactory_panel",
-    "cogs.sevendtd",
-    "cogs.ls25_panel",
-]
-
-
-# ---------------------------------------------------------------------------
-# Events
-# ---------------------------------------------------------------------------
-
-@bot.event
-async def on_ready() -> None:
-    if bot.user is None:
-        log.warning("Bot is ready, but bot.user is None.")
-        return
-
-    log.info("Logged in as %s (ID: %s)", bot.user, bot.user.id)
-    log.info("Bot is ready. Version: %s", bot.version)
-
-    log.info(
-        "Runtime config: BOT_MINIMAL_INTENTS=%s BOT_ONLY_EXTENSIONS=%r "
-        "BOT_DISABLED_EXTENSIONS=%r heartbeat_timeout=%s guild_ready_timeout=%s",
-        env_bool("BOT_MINIMAL_INTENTS", False),
-        os.getenv("BOT_ONLY_EXTENSIONS", "").strip(),
-        os.getenv("BOT_DISABLED_EXTENSIONS", "").strip(),
-        os.getenv("DISCORD_HEARTBEAT_TIMEOUT", "45"),
-        os.getenv("DISCORD_GUILD_READY_TIMEOUT", "5"),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Automatische DB-Löschung nach X Tagen
-# ---------------------------------------------------------------------------
-
-@tasks.loop(hours=24)
-async def cleanup_old_user_data() -> None:
-    retention_days = env_int("RETENTION_DAYS", 30)
-
-    try:
-        result = await bot.db.delete_old_user_data(
-            retention_days=retention_days,
-        )
-
-        log.info(
-            "DB cleanup completed. retention_days=%s affected_rows=%s "
-            "command_logs=%s moderation_actions=%s user_notes=%s deletion_audit=%s",
-            retention_days,
-            result.affected_rows,
-            result.command_logs,
-            result.moderation_actions,
-            result.user_notes,
-            result.deletion_audit,
-        )
-
-    except Exception:
-        log.exception("DB cleanup failed.")
-
-
-@cleanup_old_user_data.before_loop
-async def before_cleanup_old_user_data() -> None:
-    await bot.wait_until_ready()
-
-
-# ---------------------------------------------------------------------------
-# Eventloop Lag Watchdog
-# ---------------------------------------------------------------------------
-
-async def event_loop_lag_watchdog() -> None:
-    """
-    Misst Verzögerungen im Python-Eventloop.
-
-    Wichtig:
-    - Wenn Gateway-Latenz hoch ist, aber dieser Watchdog keinen Lag meldet,
-      ist der Python-Eventloop wahrscheinlich nicht blockiert.
-    - Dann liegt das Problem eher beim Discord-WebSocket/Gateway-Transport.
-    """
-    interval = env_float("EVENT_LOOP_LAG_INTERVAL_SECONDS", 10.0)
-    warn_after = env_float("EVENT_LOOP_LAG_WARN_SECONDS", 2.0)
-
-    loop = asyncio.get_running_loop()
-    expected = loop.time() + interval
-
-    while not bot.is_closed():
-        await asyncio.sleep(interval)
-
-        now = loop.time()
-        lag = max(0.0, now - expected)
-
-        bot.event_loop_last_lag_ms = int(lag * 1000)
-
-        if lag >= warn_after:
-            log.warning("Event loop lag detected: %.3fs", lag)
-
-        expected = now + interval
-
-
-# ---------------------------------------------------------------------------
-# Cogs laden
-# ---------------------------------------------------------------------------
-
-def load_extensions() -> None:
-    only_extensions = env_csv_set("BOT_ONLY_EXTENSIONS")
-    disabled_extensions = env_csv_set("BOT_DISABLED_EXTENSIONS")
-
-    if only_extensions:
-        log.warning("BOT_ONLY_EXTENSIONS active: %s", ", ".join(sorted(only_extensions)))
-
-    if disabled_extensions:
-        log.warning("BOT_DISABLED_EXTENSIONS active: %s", ", ".join(sorted(disabled_extensions)))
-
-    for ext in INITIAL_EXTENSIONS:
-        if only_extensions and ext not in only_extensions:
-            log.info("Skipped extension %s because BOT_ONLY_EXTENSIONS is active", ext)
-            print(f"Skipped extension: {ext}")
-            continue
-
-        if ext in disabled_extensions:
-            log.info("Skipped extension %s because it is listed in BOT_DISABLED_EXTENSIONS", ext)
-            print(f"Skipped extension: {ext}")
-            continue
-
-        if ext == "cogs.sevendtd_monitor" and not env_bool("SEVENDTD_EVENT_MONITOR_ENABLED", False):
-            log.info("Skipped extension %s because SEVENDTD_EVENT_MONITOR_ENABLED=false", ext)
-            print(f"Skipped extension: {ext}")
-            continue
-
-        try:
-            bot.load_extension(ext)
-
-        except Exception as exc:
-            log.exception("Failed to load extension %s: %s", ext, exc)
-
-        else:
-            log.info("Loaded extension: %s", ext)
-            print(f"Loaded extension: {ext}")
-
-
-# ---------------------------------------------------------------------------
-# Entry Point
-# ---------------------------------------------------------------------------
 
 async def main() -> None:
-    instance_lock = acquire_single_instance_lock()
-    lag_watchdog_task: asyncio.Task[None] | None = None
+    runtime = get_runtime()
 
-    log.info("ENV path: %s", ENV_PATH)
-    log.info("Asyncio event loop: %s", type(asyncio.get_running_loop()).__name__)
+    if runtime == "legacy":
+        from . import legacy_nextcord as runtime_module
+    elif runtime == "discordpy":
+        from . import discordpy_canary as runtime_module
+    else:
+        raise SystemExit(f"Unsupported runtime: {runtime}")
 
-    token = os.getenv("DISCORD_TOKEN", "").strip()
+    log.info("Starting HundekuchenBot runtime=%s module=%s", runtime, runtime_module.__name__)
 
-    if not token:
-        log.error("DISCORD_TOKEN is not set in %s", ENV_PATH)
-        instance_lock.close()
-        raise SystemExit("Missing DISCORD_TOKEN in bot/.env.")
-
-    try:
-        await bot.db.connect()
-        await bot.db.setup_schema()
-
-        log.info("Database initialized at: %s", bot.db.db_path)
-
-        load_extensions()
-
-        cleanup_interval_hours = env_int("RETENTION_CLEANUP_INTERVAL_HOURS", 24)
-        cleanup_old_user_data.change_interval(hours=cleanup_interval_hours)
-
-        if not cleanup_old_user_data.is_running():
-            cleanup_old_user_data.start()
-
-        lag_watchdog_task = asyncio.create_task(event_loop_lag_watchdog())
-
-        await bot.start(token)
-
-    finally:
-        if cleanup_old_user_data.is_running():
-            cleanup_old_user_data.cancel()
-
-        if lag_watchdog_task is not None:
-            lag_watchdog_task.cancel()
-
-            try:
-                await lag_watchdog_task
-            except asyncio.CancelledError:
-                pass
-
-        try:
-            await bot.db.close()
-        finally:
-            instance_lock.close()
-
-        log.info("Database connection closed.")
+    await runtime_module.main()
 
 
 if __name__ == "__main__":
