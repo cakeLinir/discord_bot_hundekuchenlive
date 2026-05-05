@@ -3,3 +3,4 @@ nextcord>=2.6,<3.0
 discord.py>=2.5,<3.0
 python-dotenv>=1.0,<2.0
 aiosqlite>=0.20,<1.0
+setuptools>=70,<82
