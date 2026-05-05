@@ -23,6 +23,7 @@ DISCORD_BOT_DIR = THIS_FILE.parent       # bot/apps/discord_bot
 APPS_DIR = DISCORD_BOT_DIR.parent        # bot/apps
 BOT_ROOT = APPS_DIR.parent               # bot
 ENV_PATH = BOT_ROOT / ".env"             # bot/.env
+ENV_LOCAL_PATH = BOT_ROOT / ".env.local" # bot/.env.local
 
 # Wichtig:
 # - DISCORD_BOT_DIR für "cogs.*"
@@ -39,7 +40,8 @@ from core.db import Database  # noqa: E402
 # Grundkonfiguration
 # ---------------------------------------------------------------------------
 
-load_dotenv(ENV_PATH)
+load_dotenv(ENV_PATH, override=False)
+load_dotenv(ENV_LOCAL_PATH, override=True)
 
 logging.basicConfig(
     level=logging.INFO,
