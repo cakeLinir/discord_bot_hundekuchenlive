@@ -7,6 +7,7 @@ from nextcord import SlashOption
 from nextcord.ext import commands
 
 ALLOWED_APPS = {"obs", "discord", "vscode", "whatsapp", "todo"}
+ADMIN_IDS = {1234567890}  # deine Discord ID
 
 
 class JarvisControl(commands.Cog):
@@ -16,7 +17,9 @@ class JarvisControl(commands.Cog):
         self.bot = bot
 
     def _agent_id(self) -> str:
-        return os.getenv("JARVIS_AGENT_ID", "justin-main-pc").strip() or "justin-main-pc"
+        return (
+            os.getenv("JARVIS_AGENT_ID", "justin-main-pc").strip() or "justin-main-pc"
+        )
 
     def _jarvis(self):
         return getattr(self.bot, "jarvis", None)
@@ -36,9 +39,11 @@ class JarvisControl(commands.Cog):
     @nextcord.slash_command(
         name="jarvis",
         description="Steuert JARVIS über den bestehenden HundekuchenBot.",
+        
     )
     async def jarvis_group(self, interaction: nextcord.Interaction) -> None:
         pass
+   
 
     @jarvis_group.subcommand(
         name="status",
@@ -60,7 +65,9 @@ class JarvisControl(commands.Cog):
         )
         embed.add_field(name="HTTP", value=f"`{status}`", inline=True)
         embed.add_field(name="Backend", value=f"`{jarvis.base_url}`", inline=True)
-        embed.add_field(name="Antwort", value=f"```text\n{str(body)[:900]}\n```", inline=False)
+        embed.add_field(
+            name="Antwort", value=f"```text\n{str(body)[:900]}\n```", inline=False
+        )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -87,7 +94,9 @@ class JarvisControl(commands.Cog):
         agents = body.get("agents", []) if isinstance(body, dict) else []
 
         if not agents:
-            await interaction.followup.send("Keine JARVIS Agents registriert.", ephemeral=True)
+            await interaction.followup.send(
+                "Keine JARVIS Agents registriert.", ephemeral=True
+            )
             return
 
         lines = []
