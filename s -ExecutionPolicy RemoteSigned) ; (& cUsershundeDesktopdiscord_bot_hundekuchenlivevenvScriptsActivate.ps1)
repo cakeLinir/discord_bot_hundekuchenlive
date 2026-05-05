@@ -1,0 +1,40 @@
+[35mbot/.env.example[m[36m:[m[32m1[m[36m:[m[1;31mDISCORD_TOKEN[m=
+[35mbot/.env.example[m[36m:[m[32m20[m[36m:[mSATIS_API_[1;31mTOKEN[m=
+[35mbot/.env.example[m[36m:[m[32m26[m[36m:[mRAWG_[1;31mAPI_KEY[m=
+[35mbot/.env.example[m[36m:[m[32m35[m[36m:[mTWITCH_[1;31mBOT_TOKEN[m=
+[35mbot/.env.example[m[36m:[m[32m44[m[36m:[mSEVENDTD_READ_[1;31mTOKEN[m_NAME=
+[35mbot/.env.example[m[36m:[m[32m45[m[36m:[mSEVENDTD_READ_[1;31mTOKEN[m_[1;31mSECRET[m=
+[35mbot/.env.example[m[36m:[m[32m46[m[36m:[mSEVENDTD_ADMIN_[1;31mTOKEN[m_NAME=
+[35mbot/.env.example[m[36m:[m[32m47[m[36m:[mSEVENDTD_ADMIN_[1;31mTOKEN[m_[1;31mSECRET[m=
+[35mbot/.env.example[m[36m:[m[32m58[m[36m:[mSEVENDTD_LOG_[1;31mTOKEN[m_KIND=
+[35mbot/apps/discord_bot/cogs/satisfactory_panel.py[m[36m:[m[32m45[m[36m:[m# SATIS_API_[1;31mTOKEN[m=
+[35mbot/apps/discord_bot/cogs/satisfactory_panel.py[m[36m:[m[32m127[m[36m:[m    return os.getenv("SATIS_API_[1;31mTOKEN[m", "").strip()
+[35mbot/apps/discord_bot/cogs/satisfactory_panel.py[m[36m:[m[32m419[m[36m:[m        raise RuntimeError("SATIS_API_[1;31mTOKEN[m fehlt in .env")
+[35mbot/apps/discord_bot/cogs/satisfactory_panel.py[m[36m:[m[32m888[m[36m:[m                "SATIS_API_[1;31mTOKEN[m fehlt in `.env`.",
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m132[m[36m:[m        token_kind = os.getenv("SEVENDTD_LOG_[1;31mTOKEN[m_KIND", "admin").strip().lower()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m135[m[36m:[m            token_name = os.getenv("SEVENDTD_LOG_[1;31mTOKEN[m_NAME", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m136[m[36m:[m            token_secret = os.getenv("SEVENDTD_LOG_[1;31mTOKEN[m_[1;31mSECRET[m", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m138[m[36m:[m            token_name = os.getenv("SEVENDTD_READ_[1;31mTOKEN[m_NAME", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m139[m[36m:[m            token_secret = os.getenv("SEVENDTD_READ_[1;31mTOKEN[m_[1;31mSECRET[m", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m141[m[36m:[m            token_name = os.getenv("SEVENDTD_ADMIN_[1;31mTOKEN[m_NAME", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m142[m[36m:[m            token_secret = os.getenv("SEVENDTD_ADMIN_[1;31mTOKEN[m_[1;31mSECRET[m", "").strip()
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m146[m[36m:[m                "7DTD Log-Monitor Token fehlt. Prüfe SEVENDTD_LOG_[1;31mTOKEN[m_KIND und Token-Variablen."
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m150[m[36m:[m            "SEVENDTD_[1;31mTOKEN[m_NAME_HEADER", "X-SDTD-API-[1;31mTOKEN[mNAME"
+[35mbot/apps/discord_bot/cogs/sevendtd_monitor.py[m[36m:[m[32m153[m[36m:[m            "SEVENDTD_[1;31mTOKEN[m_[1;31mSECRET[m_HEADER", "X-SDTD-API-[1;31mSECRET[m"
+[35mbot/apps/discord_bot/main.py[m[36m:[m[32m343[m[36m:[m    token = os.getenv("[1;31mDISCORD_TOKEN[m", "").strip()
+[35mbot/apps/discord_bot/main.py[m[36m:[m[32m346[m[36m:[m        log.error("[1;31mDISCORD_TOKEN[m is not set in %s", ENV_PATH)
+[35mbot/apps/discord_bot/main.py[m[36m:[m[32m348[m[36m:[m        raise SystemExit("Missing [1;31mDISCORD_TOKEN[m in bot/.env.")
+[35mbot/apps/twitch_bot/main.py[m[36m:[m[32m24[m[36m:[m        token = os.getenv("TWITCH_[1;31mBOT_TOKEN[m")
+[35mbot/apps/twitch_bot/main.py[m[36m:[m[32m28[m[36m:[m            raise SystemExit("TWITCH_BOT_NICK / TWITCH_[1;31mBOT_TOKEN[m / TWITCH_CHANNEL fehlen in .env")
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m47[m[36m:[m    token_name_header: str = "X-SDTD-API-[1;31mTOKEN[mNAME"
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m48[m[36m:[m    token_secret_header: str = "X-SDTD-API-[1;31mSECRET[m"
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m285[m[36m:[m        read_name = os.getenv("SEVENDTD_READ_[1;31mTOKEN[m_NAME", "").strip()
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m286[m[36m:[m        read_secret = os.getenv("SEVENDTD_READ_[1;31mTOKEN[m_[1;31mSECRET[m", "").strip()
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m288[m[36m:[m        admin_name = os.getenv("SEVENDTD_ADMIN_[1;31mTOKEN[m_NAME", "").strip()
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m289[m[36m:[m        admin_secret = os.getenv("SEVENDTD_ADMIN_[1;31mTOKEN[m_[1;31mSECRET[m", "").strip()
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m293[m[36m:[m                "SEVENDTD_READ_[1;31mTOKEN[m_NAME oder SEVENDTD_READ_[1;31mTOKEN[m_[1;31mSECRET[m fehlt in .env"
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m298[m[36m:[m                "SEVENDTD_ADMIN_[1;31mTOKEN[m_NAME oder SEVENDTD_ADMIN_[1;31mTOKEN[m_[1;31mSECRET[m fehlt in .env"
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m306[m[36m:[m                "SEVENDTD_[1;31mTOKEN[m_NAME_HEADER",
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m307[m[36m:[m                "X-SDTD-API-[1;31mTOKEN[mNAME",
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m310[m[36m:[m                "SEVENDTD_[1;31mTOKEN[m_[1;31mSECRET[m_HEADER",
+[35mbot/core/sevendtd_api.py[m[36m:[m[32m311[m[36m:[m                "X-SDTD-API-[1;31mSECRET[m",
