@@ -4,7 +4,8 @@ $Base = "C:\Bots\HundekuchenBot"
 $Repo = Join-Path $Base "repo"
 $Logs = Join-Path $Base "logs"
 $PidFile = Join-Path $Base "bot.pid"
-$EntryFile = Join-Path $Base "entry_module.txt"
+$RuntimeFile = Join-Path $Base "runtime_mode.txt"
+$EntryModule = "bot.apps.discord_bot.main"
 $Python = Join-Path $Repo ".venv\Scripts\python.exe"
 
 New-Item -ItemType Directory -Force $Logs | Out-Null
@@ -27,19 +28,26 @@ if (Test-Path $PidFile) {
     }
 }
 
-$EntryModule = $env:BOT_ENTRY_MODULE
+$RuntimeMode = $env:BOT_RUNTIME
 
-if ([string]::IsNullOrWhiteSpace($EntryModule) -and (Test-Path $EntryFile)) {
-    $EntryModule = (Get-Content $EntryFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+if ([string]::IsNullOrWhiteSpace($RuntimeMode) -and (Test-Path $RuntimeFile)) {
+    $RuntimeMode = (Get-Content $RuntimeFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
 }
 
-if ([string]::IsNullOrWhiteSpace($EntryModule)) {
-    $EntryModule = "bot.apps.discord_bot.main"
+if ([string]::IsNullOrWhiteSpace($RuntimeMode)) {
+    $RuntimeMode = "legacy"
 }
+
+if ($RuntimeMode -notin @("legacy", "discordpy")) {
+    Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Ungültiger RuntimeMode=$RuntimeMode"
+    exit 1
+}
+
+$env:BOT_RUNTIME = $RuntimeMode
 
 Set-Location $Repo
 
-Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Starte Bot EntryModule=$EntryModule"
+Add-Content "$Logs\bot-control.log" "[$(Get-Date)] Starte Bot EntryModule=$EntryModule BOT_RUNTIME=$RuntimeMode"
 
 $process = Start-Process `
     -FilePath $Python `
