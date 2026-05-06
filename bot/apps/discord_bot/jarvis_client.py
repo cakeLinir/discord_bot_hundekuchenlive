@@ -8,85 +8,120 @@ from urllib.parse import urljoin
 import aiohttp
 
 
+TRUE_VALUES = {"1", "true", "yes", "y", "on"}
+
+
 @dataclass(slots=True)
 class JarvisClient:
-    """HTTP client for the JARVIS backend bridge."""
+    """Async HTTP client for the JARVIS backend.
+
+    This client is meant to run inside the existing HundekuchenBot process.
+    It does not know or use the Discord bot token. It only uses the internal
+    JARVIS_BOT_BRIDGE_TOKEN for Backend API authorization.
+    """
 
     enabled: bool
     base_url: str
     api_token: str
-    health_endpoint: str = "/health"
-    status_endpoint: str = "/modules"
-    timeout_seconds: int = 5
+    timeout_seconds: int = 8
 
     @classmethod
     def from_env(cls) -> "JarvisClient":
+        raw_enabled = os.getenv("JARVIS_BRIDGE_ENABLED", "false").strip().lower()
+        raw_timeout = os.getenv("JARVIS_API_TIMEOUT_SECONDS", "8").strip()
+
+        try:
+            timeout_seconds = int(raw_timeout)
+        except ValueError:
+            timeout_seconds = 8
+
         return cls(
-            enabled=os.getenv("JARVIS_BRIDGE_ENABLED", "").strip().lower()
-            in {"1", "true", "yes", "y", "on"},
-            base_url=os.getenv("JARVIS_API_BASE_URL", "http://127.0.0.1:8000").strip(),
-            api_token=os.getenv("JARVIS_API_TOKEN", "").strip(),
-            health_endpoint=os.getenv("JARVIS_HEALTH_ENDPOINT", "/health").strip() or "/health",
-            status_endpoint=os.getenv("JARVIS_STATUS_ENDPOINT", "/modules").strip() or "/modules",
-            timeout_seconds=int(os.getenv("JARVIS_API_TIMEOUT_SECONDS", "5")),
+            enabled=raw_enabled in TRUE_VALUES,
+            base_url=os.getenv("JARVIS_BACKEND_URL", os.getenv("JARVIS_API_BASE_URL", "http://127.0.0.1:8080")).strip().rstrip("/"),
+            api_token=os.getenv("JARVIS_BOT_BRIDGE_TOKEN", os.getenv("JARVIS_API_TOKEN", "")).strip(),
+            timeout_seconds=timeout_seconds,
         )
 
     def _url(self, endpoint: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", endpoint.lstrip("/"))
 
-    def _headers(self) -> dict[str, str]:
+    def _headers(self, *, auth: bool = True) -> dict[str, str]:
         headers = {"Accept": "application/json"}
-        if self.api_token:
+
+        if auth and self.api_token:
             headers["Authorization"] = f"Bearer {self.api_token}"
+
         return headers
 
     async def request_json(
         self,
         method: str,
         endpoint: str,
+        payload: dict[str, Any] | None = None,
         *,
-        json: dict[str, Any] | None = None,
+        auth: bool = True,
     ) -> tuple[int, Any]:
         if not self.enabled:
-            return 503, {"detail": "JARVIS bridge disabled"}
+            return 503, {"error": "JARVIS bridge disabled"}
+
+        if auth and not self.api_token:
+            return 500, {"error": "JARVIS_BOT_BRIDGE_TOKEN fehlt"}
 
         timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
 
-        async with aiohttp.ClientSession(timeout=timeout, headers=self._headers()) as session:
-            async with session.request(method, self._url(endpoint), json=json) as response:
-                try:
-                    body: Any = await response.json(content_type=None)
-                except Exception:
+        async with aiohttp.ClientSession(timeout=timeout, headers=self._headers(auth=auth)) as session:
+            async with session.request(method, self._url(endpoint), json=payload) as response:
+                content_type = response.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    body = await response.json(content_type=None)
+                else:
                     body = {"raw": await response.text()}
 
                 return response.status, body
 
-    async def get_json(self, endpoint: str) -> tuple[int, Any]:
-        return await self.request_json("GET", endpoint)
+    async def get_json(self, endpoint: str, *, auth: bool = True) -> tuple[int, Any]:
+        return await self.request_json("GET", endpoint, auth=auth)
 
-    async def post_json(self, endpoint: str, payload: dict[str, Any]) -> tuple[int, Any]:
-        return await self.request_json("POST", endpoint, json=payload)
+    async def post_json(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        *,
+        auth: bool = True,
+    ) -> tuple[int, Any]:
+        return await self.request_json("POST", endpoint, payload, auth=auth)
 
     async def health(self) -> tuple[int, Any]:
-        return await self.get_json(self.health_endpoint)
+        return await self.get_json("/api/health", auth=False)
 
-    async def status(self) -> tuple[int, Any]:
-        return await self.get_json(self.status_endpoint)
+    async def agent_status(self) -> tuple[int, Any]:
+        return await self.get_json("/api/agent/status")
 
-    async def agents(self) -> tuple[int, Any]:
-        return await self.get_json("/agents")
+    async def morning_log(self) -> tuple[int, Any]:
+        return await self.get_json("/api/agent/morning-log")
 
-    async def enqueue_agent_job(
+    async def recent_commands(self) -> tuple[int, Any]:
+        return await self.get_json("/api/commands/recent")
+
+    async def dev_news(self) -> tuple[int, Any]:
+        return await self.get_json("/api/news/dev", auth=False)
+
+    async def create_command(
         self,
+        command_type: str,
+        requested_by: str,
         *,
-        agent_id: str,
-        job_type: str,
-        payload: dict[str, Any],
+        discord_user_id: str | None = None,
+        discord_role_ids: list[str] | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> tuple[int, Any]:
         return await self.post_json(
-            f"/agents/{agent_id}/jobs",
+            "/api/commands",
             {
-                "job_type": job_type,
-                "payload": payload,
+                "type": command_type,
+                "requestedBy": requested_by,
+                "discordUserId": discord_user_id,
+                "discordRoleIds": discord_role_ids or [],
+                "payload": payload or {},
             },
         )

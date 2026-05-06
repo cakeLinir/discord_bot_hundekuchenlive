@@ -1,162 +1,288 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import nextcord
 from nextcord import SlashOption
 from nextcord.ext import commands
 
-ALLOWED_APPS = {"obs", "discord", "vscode", "whatsapp", "todo"}
-ADMIN_IDS = {1234567890}  # deine Discord ID
+ALLOWED_APPS = ["obs", "todo", "vscode", "discord", "spotify", "whatsapp"]
+
+
+def _guild_ids() -> list[int] | None:
+    raw = os.getenv("JARVIS_ALLOWED_GUILD_ID", "").strip()
+    if not raw:
+        return None
+
+    try:
+        return [int(raw)]
+    except ValueError:
+        return None
+
+
+def _role_ids(interaction: nextcord.Interaction) -> list[str]:
+    roles = getattr(interaction.user, "roles", None)
+    if not roles:
+        return []
+
+    result: list[str] = []
+    for role in roles:
+        role_id = getattr(role, "id", None)
+        role_name = getattr(role, "name", "")
+        if role_id and role_name != "@everyone":
+            result.append(str(role_id))
+
+    return result
+
+
+def _shorten(message: str, limit: int = 1900) -> str:
+    if len(message) <= limit:
+        return message
+    return message[: limit - 24] + "\n... gekürzt"
+
+
+def _fmt_status(data: dict[str, Any]) -> str:
+    status = data.get("status")
+    if not status:
+        return "JARVIS-Agent hat noch keinen Status ans Backend gesendet."
+
+    return (
+        "**JARVIS Agent-Status**\n"
+        f"Agent: `{status.get('agentName', 'unbekannt')}`\n"
+        f"Host: `{status.get('hostname', 'unbekannt')}`\n"
+        f"Status: `{status.get('status', 'unbekannt')}`\n"
+        f"Agent-Zeit: `{status.get('timestamp', 'unbekannt')}`\n"
+        f"Backend-Empfang: `{status.get('receivedAt', 'unbekannt')}`"
+    )
+
+
+def _fmt_morning_log(data: dict[str, Any]) -> str:
+    log = data.get("morningLog")
+    if not log:
+        return "Es liegt noch kein JARVIS-Morning-Log vor."
+
+    started = ", ".join(log.get("startedApps", [])) or "Keine"
+    failed = ", ".join(log.get("failedApps", [])) or "Keine"
+    todos = log.get("todos", [])
+    todo_text = "\n".join(f"- {item}" for item in todos[:10]) if todos else "Keine offenen TODOs."
+
+    return (
+        "**JARVIS Morning-Log**\n"
+        f"Agent-Zeit: `{log.get('timestamp', 'unbekannt')}`\n"
+        f"Backend-Empfang: `{log.get('receivedAt', 'unbekannt')}`\n\n"
+        f"**Gestartet:** {started}\n"
+        f"**Fehlgeschlagen:** {failed}\n\n"
+        f"**TODOs:**\n{todo_text}\n\n"
+        f"**Projekt:**\n{log.get('projectSummary', 'Keine Projektzusammenfassung vorhanden.')}"
+    )
 
 
 class JarvisControl(commands.Cog):
-    """Discord bridge to JARVIS backend."""
+    """Discord bridge to the JARVIS backend inside the existing HundekuchenBot."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-
-    def _agent_id(self) -> str:
-        return (
-            os.getenv("JARVIS_AGENT_ID", "justin-main-pc").strip() or "justin-main-pc"
-        )
 
     def _jarvis(self):
         return getattr(self.bot, "jarvis", None)
 
     async def _deny_if_disabled(self, interaction: nextcord.Interaction) -> bool:
         jarvis = self._jarvis()
-
-        if jarvis is None or not jarvis.enabled:
+        if not jarvis or not jarvis.enabled:
             await interaction.response.send_message(
-                "JARVIS Bridge ist deaktiviert. Setze `JARVIS_BRIDGE_ENABLED=true`.",
+                "JARVIS Bridge ist deaktiviert. Setze `JARVIS_BRIDGE_ENABLED=true` in der Bot-.env.",
                 ephemeral=True,
             )
             return True
-
         return False
 
     @nextcord.slash_command(
         name="jarvis",
         description="Steuert JARVIS über den bestehenden HundekuchenBot.",
-        
+        guild_ids=_guild_ids(),
     )
     async def jarvis_group(self, interaction: nextcord.Interaction) -> None:
         pass
-   
 
-    @jarvis_group.subcommand(
-        name="status",
-        description="Prüft, ob das JARVIS Backend erreichbar ist.",
-    )
+    @jarvis_group.subcommand(name="status", description="Prüft Backend und Agent-Status.")
     async def jarvis_status(self, interaction: nextcord.Interaction) -> None:
         if await self._deny_if_disabled(interaction):
             return
 
         await interaction.response.defer(ephemeral=True)
-
         jarvis = self._jarvis()
-        status, body = await jarvis.health()
 
-        ok = 200 <= status < 300
-        embed = nextcord.Embed(
-            title="JARVIS Status",
-            color=0x2ECC71 if ok else 0xE74C3C,
-        )
-        embed.add_field(name="HTTP", value=f"`{status}`", inline=True)
-        embed.add_field(name="Backend", value=f"`{jarvis.base_url}`", inline=True)
-        embed.add_field(
-            name="Antwort", value=f"```text\n{str(body)[:900]}\n```", inline=False
-        )
+        try:
+            health_code, health = await jarvis.health()
+            agent_code, agent = await jarvis.agent_status()
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @jarvis_group.subcommand(
-        name="agents",
-        description="Zeigt registrierte JARVIS Agents.",
-    )
-    async def jarvis_agents(self, interaction: nextcord.Interaction) -> None:
-        if await self._deny_if_disabled(interaction):
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        jarvis = self._jarvis()
-        status, body = await jarvis.agents()
-
-        if not (200 <= status < 300):
-            await interaction.followup.send(
-                f"Agenten konnten nicht geladen werden: HTTP `{status}`",
-                ephemeral=True,
-            )
-            return
-
-        agents = body.get("agents", []) if isinstance(body, dict) else []
-
-        if not agents:
-            await interaction.followup.send(
-                "Keine JARVIS Agents registriert.", ephemeral=True
-            )
-            return
-
-        lines = []
-        for agent in agents[:10]:
-            lines.append(
-                f"- `{agent.get('agent_id')}` | `{agent.get('status')}` | "
-                f"{agent.get('name')} | {', '.join(agent.get('capabilities', []))}"
+            message = (
+                "**JARVIS Backend**\n"
+                f"Health HTTP: `{health_code}`\n"
+                f"Status: `{health.get('status', health.get('error', 'unbekannt'))}`\n\n"
+                + _fmt_status(agent if isinstance(agent, dict) else {})
             )
 
-        await interaction.followup.send(
-            "**JARVIS Agents**\n" + "\n".join(lines),
-            ephemeral=True,
-        )
+            if health_code >= 400 or agent_code >= 400:
+                message += f"\n\nBackend-Antwort Agent HTTP `{agent_code}`: `{agent}`"
 
-    @jarvis_group.subcommand(
-        name="launch",
-        description="Startet eine erlaubte App auf dem JARVIS Desktop-Agent.",
-    )
-    async def jarvis_launch(
+            await interaction.followup.send(_shorten(message), ephemeral=True)
+        except Exception as exc:
+            await interaction.followup.send(f"JARVIS Status fehlgeschlagen: `{exc}`", ephemeral=True)
+
+    @jarvis_group.subcommand(name="morning", description="Startet die JARVIS-Morgenroutine nach Bestätigung.")
+    async def jarvis_morning(
         self,
         interaction: nextcord.Interaction,
-        app: str = SlashOption(
-            description="App: obs, discord, vscode, whatsapp, todo",
-            required=True,
-            choices=["obs", "discord", "vscode", "whatsapp", "todo"],
+        confirm_code: str = SlashOption(
+            description="Zum Start exakt START eingeben.",
+            required=False,
         ),
     ) -> None:
         if await self._deny_if_disabled(interaction):
             return
 
-        app_key = app.lower().strip()
+        await interaction.response.defer(ephemeral=True)
 
-        if app_key not in ALLOWED_APPS:
-            await interaction.response.send_message(
-                f"Nicht erlaubte App: `{app_key}`",
+        if confirm_code != "START":
+            await interaction.followup.send(
+                "**Bestätigung erforderlich.**\n"
+                "Dieser Befehl erstellt einen Backend-Command, den dein lokaler JARVIS-Agent ausführt.\n\n"
+                "Führe den Befehl erneut aus mit `confirm_code: START`.",
                 ephemeral=True,
             )
+            return
+
+        jarvis = self._jarvis()
+        status, body = await jarvis.create_command(
+            "morning_routine",
+            requested_by=str(interaction.user),
+            discord_user_id=str(interaction.user.id),
+            discord_role_ids=_role_ids(interaction),
+            payload={
+                "source": "discord",
+                "guildId": str(interaction.guild_id) if interaction.guild_id else None,
+                "channelId": str(interaction.channel_id) if interaction.channel_id else None,
+            },
+        )
+
+        if status >= 400:
+            await interaction.followup.send(f"JARVIS Command abgelehnt HTTP `{status}`: `{body}`", ephemeral=True)
+            return
+
+        command_id = body.get("command", {}).get("id", "unbekannt") if isinstance(body, dict) else "unbekannt"
+        await interaction.followup.send(
+            f"**JARVIS Morning-Command erstellt.**\nCommand-ID: `{command_id}`",
+            ephemeral=True,
+        )
+
+    @jarvis_group.subcommand(name="log", description="Zeigt das letzte JARVIS-Morning-Log.")
+    async def jarvis_log(self, interaction: nextcord.Interaction) -> None:
+        if await self._deny_if_disabled(interaction):
             return
 
         await interaction.response.defer(ephemeral=True)
-
         jarvis = self._jarvis()
-        status, body = await jarvis.enqueue_agent_job(
-            agent_id=self._agent_id(),
-            job_type="launch_desktop_app",
-            payload={"app_key": app_key},
-        )
+        status, body = await jarvis.morning_log()
 
-        if 200 <= status < 300:
-            job_id = body.get("id", "n/a") if isinstance(body, dict) else "n/a"
+        if status >= 400:
+            await interaction.followup.send(f"Morning-Log konnte nicht gelesen werden HTTP `{status}`: `{body}`", ephemeral=True)
+            return
+
+        await interaction.followup.send(_shorten(_fmt_morning_log(body if isinstance(body, dict) else {})), ephemeral=True)
+
+    @jarvis_group.subcommand(name="news", description="Ruft aktuelle Dev-News aus dem JARVIS Backend ab.")
+    async def jarvis_news(self, interaction: nextcord.Interaction) -> None:
+        if await self._deny_if_disabled(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        jarvis = self._jarvis()
+        status, body = await jarvis.dev_news()
+
+        if status >= 400 or not isinstance(body, dict):
+            await interaction.followup.send(f"Dev-News fehlgeschlagen HTTP `{status}`: `{body}`", ephemeral=True)
+            return
+
+        items = body.get("items", [])
+        errors = body.get("errors", [])
+
+        if not items:
+            error_text = "\n".join(f"- {item}" for item in errors[:5]) if errors else "Keine Fehler gemeldet."
             await interaction.followup.send(
-                f"JARVIS Job erstellt: `{app_key}` starten. Job-ID: `{job_id}`",
+                _shorten(f"**JARVIS Dev-News**\nKeine News geladen.\n\n**Fehler:**\n{error_text}"),
                 ephemeral=True,
             )
             return
 
-        await interaction.followup.send(
-            f"JARVIS Job konnte nicht erstellt werden: HTTP `{status}`\n```text\n{str(body)[:900]}\n```",
-            ephemeral=True,
+        lines = ["**JARVIS Dev-News**", f"Stand: `{body.get('fetchedAt', 'unbekannt')}`", ""]
+        for item in items[:5]:
+            lines.append(
+                f"- **{item.get('title', 'Ohne Titel')}**\n"
+                f"  Quelle: `{item.get('source', 'unbekannt')}` | Datum: `{item.get('date', 'unbekannt')}`\n"
+                f"  {item.get('link', '')}"
+            )
+
+        await interaction.followup.send(_shorten("\n".join(lines)), ephemeral=True)
+
+    @jarvis_group.subcommand(name="launch", description="Startet eine erlaubte App auf dem lokalen JARVIS-Agent.")
+    async def jarvis_launch(
+        self,
+        interaction: nextcord.Interaction,
+        app: str = SlashOption(
+            description="App auswählen.",
+            required=True,
+            choices=ALLOWED_APPS,
+        ),
+    ) -> None:
+        if await self._deny_if_disabled(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        jarvis = self._jarvis()
+        app_key = app.strip().lower()
+
+        status, body = await jarvis.create_command(
+            "app_open",
+            requested_by=str(interaction.user),
+            discord_user_id=str(interaction.user.id),
+            discord_role_ids=_role_ids(interaction),
+            payload={"source": "discord", "app": app_key},
         )
+
+        if status >= 400:
+            await interaction.followup.send(f"App-Command abgelehnt HTTP `{status}`: `{body}`", ephemeral=True)
+            return
+
+        command_id = body.get("command", {}).get("id", "unbekannt") if isinstance(body, dict) else "unbekannt"
+        await interaction.followup.send(f"JARVIS App-Command erstellt: `{app_key}` | `{command_id}`", ephemeral=True)
+
+    @jarvis_group.subcommand(name="commands", description="Zeigt die letzten JARVIS Backend-Commands.")
+    async def jarvis_commands(self, interaction: nextcord.Interaction) -> None:
+        if await self._deny_if_disabled(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        jarvis = self._jarvis()
+        status, body = await jarvis.recent_commands()
+
+        if status >= 400 or not isinstance(body, dict):
+            await interaction.followup.send(f"Commands konnten nicht gelesen werden HTTP `{status}`: `{body}`", ephemeral=True)
+            return
+
+        commands_list = body.get("commands", [])
+        if not commands_list:
+            await interaction.followup.send("Keine JARVIS Commands vorhanden.", ephemeral=True)
+            return
+
+        lines = ["**Letzte JARVIS Commands**"]
+        for command in commands_list[:10]:
+            lines.append(
+                f"- `{command.get('id')}` | `{command.get('type')}` | `{command.get('status')}` | {command.get('requestedBy')}"
+            )
+
+        await interaction.followup.send(_shorten("\n".join(lines)), ephemeral=True)
 
 
 def setup(bot: commands.Bot) -> None:
