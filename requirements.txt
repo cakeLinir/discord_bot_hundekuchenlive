@@ -5,3 +5,4 @@ python-dotenv>=1.0,<2.0
 aiosqlite>=0.20,<1.0
 setuptools>=70,<82
 uvicorn>=0.34,<0.35
+fastapi>=0.105,<0.110
