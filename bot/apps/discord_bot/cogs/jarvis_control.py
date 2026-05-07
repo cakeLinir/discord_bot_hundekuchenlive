@@ -1,3 +1,4 @@
+# jarvis_control.py - Discord Cog for controlling and monitoring the JARVIS agent via slash commands in the existing HundekuchenBot.
 from __future__ import annotations
 
 import os
@@ -7,7 +8,7 @@ import nextcord
 from nextcord import SlashOption
 from nextcord.ext import commands
 
-ALLOWED_APPS = ["obs", "todo", "vscode", "discord", "spotify", "whatsapp"]
+ALLOWED_APPS = ("obs", "todo", "vscode", "discord", "spotify", "whatsapp")
 
 
 def _guild_ids() -> list[int] | None:
@@ -40,6 +41,10 @@ def _shorten(message: str, limit: int = 1900) -> str:
     if len(message) <= limit:
         return message
     return message[: limit - 24] + "\n... gekürzt"
+
+
+def _safe_body(body: Any) -> str:
+    return _shorten(str(body), limit=700)
 
 
 def _fmt_status(data: dict[str, Any]) -> str:
@@ -89,9 +94,9 @@ class JarvisControl(commands.Cog):
 
     async def _deny_if_disabled(self, interaction: nextcord.Interaction) -> bool:
         jarvis = self._jarvis()
-        if not jarvis or not jarvis.enabled:
+        if not jarvis or not getattr(jarvis, "enabled", False):
             await interaction.response.send_message(
-                "JARVIS Bridge ist deaktiviert. Setze `JARVIS_BRIDGE_ENABLED=true` in der Bot-.env.",
+                "JARVIS Bridge ist deaktiviert. Setze `JARVIS_ENABLED=true` und `JARVIS_BRIDGE_ENABLED=true` in der Bot-.env.",
                 ephemeral=True,
             )
             return True
@@ -117,17 +122,21 @@ class JarvisControl(commands.Cog):
             health_code, health = await jarvis.health()
             agent_code, agent = await jarvis.agent_status()
 
+            health_data = health if isinstance(health, dict) else {}
+            agent_data = agent if isinstance(agent, dict) else {}
+
             message = (
                 "**JARVIS Backend**\n"
                 f"Health HTTP: `{health_code}`\n"
-                f"Status: `{health.get('status', health.get('error', 'unbekannt'))}`\n\n"
-                + _fmt_status(agent if isinstance(agent, dict) else {})
+                f"Status: `{health_data.get('status', health_data.get('error', 'unbekannt'))}`\n\n"
+                + _fmt_status(agent_data)
             )
 
             if health_code >= 400 or agent_code >= 400:
-                message += f"\n\nBackend-Antwort Agent HTTP `{agent_code}`: `{agent}`"
+                message += f"\n\nBackend-Antwort Agent HTTP `{agent_code}`: `{_safe_body(agent)}`"
 
             await interaction.followup.send(_shorten(message), ephemeral=True)
+
         except Exception as exc:
             await interaction.followup.send(f"JARVIS Status fehlgeschlagen: `{exc}`", ephemeral=True)
 
@@ -145,7 +154,7 @@ class JarvisControl(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        if confirm_code != "START":
+        if not confirm_code or confirm_code.strip().upper() != "START":
             await interaction.followup.send(
                 "**Bestätigung erforderlich.**\n"
                 "Dieser Befehl erstellt einen Backend-Command, den dein lokaler JARVIS-Agent ausführt.\n\n"
@@ -168,12 +177,66 @@ class JarvisControl(commands.Cog):
         )
 
         if status >= 400:
-            await interaction.followup.send(f"JARVIS Command abgelehnt HTTP `{status}`: `{body}`", ephemeral=True)
+            await interaction.followup.send(
+                f"JARVIS Command abgelehnt HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
             return
 
         command_id = body.get("command", {}).get("id", "unbekannt") if isinstance(body, dict) else "unbekannt"
+
         await interaction.followup.send(
             f"**JARVIS Morning-Command erstellt.**\nCommand-ID: `{command_id}`",
+            ephemeral=True,
+        )
+
+    @jarvis_group.subcommand(name="stop", description="Sendet einen lokalen Not-Aus-Command an JARVIS.")
+    async def jarvis_stop(
+        self,
+        interaction: nextcord.Interaction,
+        confirm_code: str = SlashOption(
+            description="Zum Stop exakt STOP eingeben.",
+            required=False,
+        ),
+    ) -> None:
+        if await self._deny_if_disabled(interaction):
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        if not confirm_code or confirm_code.strip().upper() != "STOP":
+            await interaction.followup.send(
+                "**Bestätigung erforderlich.**\n"
+                "Dieser Befehl sendet einen Stop-Command an den lokalen JARVIS-Agent.\n\n"
+                "Führe den Befehl erneut aus mit `confirm_code: STOP`.",
+                ephemeral=True,
+            )
+            return
+
+        jarvis = self._jarvis()
+        status, body = await jarvis.create_command(
+            "system_stop",
+            requested_by=str(interaction.user),
+            discord_user_id=str(interaction.user.id),
+            discord_role_ids=_role_ids(interaction),
+            payload={
+                "source": "discord",
+                "guildId": str(interaction.guild_id) if interaction.guild_id else None,
+                "channelId": str(interaction.channel_id) if interaction.channel_id else None,
+            },
+        )
+
+        if status >= 400:
+            await interaction.followup.send(
+                f"JARVIS Stop-Command abgelehnt HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
+            return
+
+        command_id = body.get("command", {}).get("id", "unbekannt") if isinstance(body, dict) else "unbekannt"
+
+        await interaction.followup.send(
+            f"**JARVIS Stop-Command erstellt.**\nCommand-ID: `{command_id}`",
             ephemeral=True,
         )
 
@@ -183,14 +246,21 @@ class JarvisControl(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True)
+
         jarvis = self._jarvis()
         status, body = await jarvis.morning_log()
 
         if status >= 400:
-            await interaction.followup.send(f"Morning-Log konnte nicht gelesen werden HTTP `{status}`: `{body}`", ephemeral=True)
+            await interaction.followup.send(
+                f"Morning-Log konnte nicht gelesen werden HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
             return
 
-        await interaction.followup.send(_shorten(_fmt_morning_log(body if isinstance(body, dict) else {})), ephemeral=True)
+        await interaction.followup.send(
+            _shorten(_fmt_morning_log(body if isinstance(body, dict) else {})),
+            ephemeral=True,
+        )
 
     @jarvis_group.subcommand(name="news", description="Ruft aktuelle Dev-News aus dem JARVIS Backend ab.")
     async def jarvis_news(self, interaction: nextcord.Interaction) -> None:
@@ -198,11 +268,15 @@ class JarvisControl(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True)
+
         jarvis = self._jarvis()
         status, body = await jarvis.dev_news()
 
         if status >= 400 or not isinstance(body, dict):
-            await interaction.followup.send(f"Dev-News fehlgeschlagen HTTP `{status}`: `{body}`", ephemeral=True)
+            await interaction.followup.send(
+                f"Dev-News fehlgeschlagen HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
             return
 
         items = body.get("items", [])
@@ -217,6 +291,7 @@ class JarvisControl(commands.Cog):
             return
 
         lines = ["**JARVIS Dev-News**", f"Stand: `{body.get('fetchedAt', 'unbekannt')}`", ""]
+
         for item in items[:5]:
             lines.append(
                 f"- **{item.get('title', 'Ohne Titel')}**\n"
@@ -233,13 +308,14 @@ class JarvisControl(commands.Cog):
         app: str = SlashOption(
             description="App auswählen.",
             required=True,
-            choices=ALLOWED_APPS,
+            choices=list(ALLOWED_APPS),
         ),
     ) -> None:
         if await self._deny_if_disabled(interaction):
             return
 
         await interaction.response.defer(ephemeral=True)
+
         jarvis = self._jarvis()
         app_key = app.strip().lower()
 
@@ -252,11 +328,18 @@ class JarvisControl(commands.Cog):
         )
 
         if status >= 400:
-            await interaction.followup.send(f"App-Command abgelehnt HTTP `{status}`: `{body}`", ephemeral=True)
+            await interaction.followup.send(
+                f"App-Command abgelehnt HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
             return
 
         command_id = body.get("command", {}).get("id", "unbekannt") if isinstance(body, dict) else "unbekannt"
-        await interaction.followup.send(f"JARVIS App-Command erstellt: `{app_key}` | `{command_id}`", ephemeral=True)
+
+        await interaction.followup.send(
+            f"JARVIS App-Command erstellt: `{app_key}` | `{command_id}`",
+            ephemeral=True,
+        )
 
     @jarvis_group.subcommand(name="commands", description="Zeigt die letzten JARVIS Backend-Commands.")
     async def jarvis_commands(self, interaction: nextcord.Interaction) -> None:
@@ -264,19 +347,25 @@ class JarvisControl(commands.Cog):
             return
 
         await interaction.response.defer(ephemeral=True)
+
         jarvis = self._jarvis()
         status, body = await jarvis.recent_commands()
 
         if status >= 400 or not isinstance(body, dict):
-            await interaction.followup.send(f"Commands konnten nicht gelesen werden HTTP `{status}`: `{body}`", ephemeral=True)
+            await interaction.followup.send(
+                f"Commands konnten nicht gelesen werden HTTP `{status}`: `{_safe_body(body)}`",
+                ephemeral=True,
+            )
             return
 
         commands_list = body.get("commands", [])
+
         if not commands_list:
             await interaction.followup.send("Keine JARVIS Commands vorhanden.", ephemeral=True)
             return
 
         lines = ["**Letzte JARVIS Commands**"]
+
         for command in commands_list[:10]:
             lines.append(
                 f"- `{command.get('id')}` | `{command.get('type')}` | `{command.get('status')}` | {command.get('requestedBy')}"
